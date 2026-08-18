@@ -1,105 +1,117 @@
 # PL Predict
 
-PL Predict is a comprehensive, local Premier League prediction and analytics platform built with free/open-source data. It covers fixture forecasts, expected goals, likely scorelines, season simulations, model evaluation, team and player analysis, shots, referees, and an optional FPL Picks view with Hybrid xP.
+> A local Premier League prediction and analytics workspace for fixtures, teams, players, season outcomes, and FPL decision support.
 
-## Windows install
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-C7FF4D?labelColor=102219)](LICENSE)
+[![Dashboard](https://img.shields.io/badge/Install%20page-Live-0B120D?labelColor=102219)](https://site-nine-pink-18.vercel.app)
 
-In PowerShell, run:
+PL Predict turns open Premier League data into a complete local dashboard. Use it to forecast individual fixtures, understand expected-goals context, simulate the season table, explore player and team data, inspect model quality, and—if you play Fantasy Premier League—compare official FPL xP against an independent fixture-aware signal.
+
+**[Open the install page →](https://site-nine-pink-18.vercel.app)** · **[Read the methodology →](docs/plan.md)**
+
+## What you can do
+
+| Area | Included |
+| --- | --- |
+| Match predictions | Home/draw/away probabilities, expected goals, likely scorelines, clean sheets, BTTS and goal totals |
+| Season simulator | Monte Carlo final-table projections, title, top-four and relegation probabilities |
+| Team & player analysis | Form, xG/xA, shot maps, historical matches, attendance and referee trends |
+| Model diagnostics | Walk-forward accuracy, ranked probability score, calibration and feature importance |
+| FPL Picks | Official FPL xP, availability and fixtures plus PL Predict's fixture-level model contribution |
+
+## Install on Windows
+
+Open PowerShell and run this one command:
 
 ```powershell
 irm https://raw.githubusercontent.com/kianjindal2010/pl-predict/main/scripts/install.ps1 | iex
 ```
 
-Open a **new** PowerShell or Command Prompt window and run:
+Then open a **new** PowerShell or Command Prompt window and start the app from anywhere:
 
 ```powershell
 pl-predict
 ```
 
-That opens the complete local Premier League dashboard at `http://127.0.0.1:8000`. It also refreshes the official FPL player, availability, event and fixture feeds for the optional FPL Picks view, selects the nearest upcoming gameweek (or the earliest unfinished one), and recalculates Hybrid xP. The installer uses Winget to install Git and Python 3.12 if necessary, installs under `%LOCALAPPDATA%\PLPredict`, and never deletes an existing non-repository directory or local runtime snapshots.
+The dashboard opens locally at `http://127.0.0.1:8000`. Each launch refreshes official FPL data for the optional FPL Picks view, recalculates Hybrid xP for the closest upcoming gameweek, then starts the complete Premier League dashboard. It does not silently retrain the historical match model.
 
-Run the same installer command later to safely fetch app updates. Launches fetch current FPL data but do not silently retrain the historical match model.
+The installer uses Winget to add Git and Python 3.12 when needed, installs only under `%LOCALAPPDATA%\PLPredict`, and preserves local runtime data on reinstall. Run the same command again to update the application.
 
-The static install page is deployed separately on Vercel; the Python dashboard is intentionally local.
-
-## Quick Start
+## From source
 
 ```bash
-# Install from a source checkout
+git clone https://github.com/kianjindal2010/pl-predict.git
+cd pl-predict
+python -m venv .venv
+.venv\Scripts\activate
 pip install -e .
-
-# Run the data pipeline (scrape -> clean -> merge)
-predict-pl scrape            # or: python -m pl_predict.cli scrape
-
-# Train models
-predict-pl train             # or: python -m pl_predict.cli train
-
-# Predict a match
-predict-pl predict "Liverpool" "Manchester City"
-
-# Run a Monte Carlo season simulation
-predict-pl season --simulations 5000 --season 2025-26
-
-# Refresh FPL data and launch the dashboard (opens your browser)
 pl-predict
-
-# Explicit commands remain available
-pl-predict dashboard
-pl-predict refresh-fpl
 ```
 
-## Architecture
+### Useful commands
 
-See [docs/plan.md](docs/plan.md) for the full architecture and methodology.
+```bash
+# Forecast one fixture
+pl-predict predict "Liverpool" "Manchester City"
+
+# Run the complete local dashboard
+pl-predict
+
+# Refresh only the FPL data and Hybrid xP cache
+pl-predict refresh-fpl
+
+# Build the historical data pipeline and train the deployable ensemble
+pl-predict scrape
+pl-predict train
+
+# Simulate a season
+pl-predict season --simulations 5000 --season 2025-26
+
+# Evaluate the ensemble on the chronological holdout
+pl-predict evaluate --ensemble
+```
 
 ## Dashboard
 
-The web dashboard (`pl-predict`) provides nine tabs:
+The dashboard is deliberately local: model files, runtime snapshots and analytics stay on your computer. The Vercel site is only the public installer and project page.
 
-- **Overview** — 2026/27 fixture table with probabilities, most-likely score, O/U 2.5 and conformal-set badges
-- **Predict** — H/D/A probabilities, expected goals, score-matrix heatmap, 6-model breakdown, H2H history
-- **Season Sim** — Monte Carlo projected final table with P10-P90 bands, title/top-4/relegation probabilities
-- **Model** — walk-forward accuracy/RPS, calibration curve, worst-predictions diagnostics
-- **Players / FPL Picks** — official FPL xP alongside the PL Predict model contribution and 55/45 Hybrid xP, plus historical player leaderboards
-- **Shot Maps** — xG shot locations on a pitch, filtered by season/team/player
-- **Teams** — form trend, home/away splits, goals histogram, attendance
-- **Referees** — per-referee goals & home-win-bias analytics
-- **Features** — XGBoost feature importance
+| View | Purpose |
+| --- | --- |
+| Overview | Upcoming fixture probabilities and score outlook |
+| Predict | Detailed fixture forecast with score matrix and model breakdown |
+| Season Sim | Projected final table and outcome probabilities |
+| Model | Accuracy, RPS, calibration and feature diagnostics |
+| Players, Teams, Shot Maps, Referees | League-wide analysis tools |
+| FPL Picks | Separate official FPL xP, PL Predict model xP and 55/45 Hybrid xP |
 
-API endpoints: `/api/health`, `/api/matches`, `/api/upcoming`, `/api/predict`, `/api/season`,
-`/api/features`, `/api/teams`, `/api/seasons`, `/api/performance`, `/api/players`,
-`/api/players/{id}`, `/api/shots`, `/api/team/{name}`, `/api/h2h`, `/api/referees`,
-`/api/fixtures_2627`, `/api/fpl/picks`.
+## Data and methodology
 
-`/api/fpl/picks` returns the selected gameweek, the official-data refresh timestamp, official FPL xP, the model contribution, and their Hybrid xP separately. Runtime official snapshots and recalculated projection caches remain local and are not committed.
+The project uses free/open sources including FBref, Understat, Football-Data.co.uk, Club Elo, Open-Meteo and SoFIFA. See the [architecture and methodology](docs/plan.md) for data flow, features and modelling notes.
 
-## Project Structure
+FPL is a feature of the app, not its entire scope. The FPL view uses official FPL player, availability, event and fixture data, and keeps official xP distinct from the PL Predict contribution.
 
-```
-pl-predict/
-├── config/            # YAML config (leagues, paths)
-├── data/
-│   ├── raw/           # scraped sources (football_data, transfermarkt, understat)
-│   ├── processed/     # cleaned features, trained models, prediction artifacts
-│   └── external/      # (reserved for external datasets)
-├── docs/              # plan.md (methodology), PROGRESS.md (session log)
-├── logs/              # training / scrape logs
-├── notebooks/         # (reserved for exploration)
-├── paper/             # (reserved for write-up)
-├── scripts/           # one-off runners & diagnostics (analyze_worst_predictions.py, run_*.py)
-├── src/pl_predict/    # package: pipeline, features, models, evaluation, simulation, dashboard
-└── tests/             # (reserved for test suite)
+## Project layout
+
+```text
+src/pl_predict/       Application, models, pipeline, simulation and dashboard
+data/                 Packaged model/data assets plus local runtime caches
+tests/                Regression tests
+scripts/              Data, training and diagnostic utilities
+docs/                 Methodology and project notes
+site/                 Static Vercel install page
 ```
 
-## Data Sources
+## Contributing
 
-- FBref (match/player stats)
-- Understat (expected goals)
-- Football-Data.co.uk (results + betting odds, 1993–present)
-- Club Elo ratings
-- Open-Meteo (weather)
-- SoFIFA (player ratings)
+Bug reports and focused improvements are welcome. Please open an issue describing the problem, keep pull requests scoped, and run the checks before opening one:
+
+```bash
+ruff format --check .
+ruff check .
+python -m pytest -q
+```
 
 ## License
 
-MIT
+Released under the [MIT License](LICENSE). PL Predict is an independent project and is not affiliated with the Premier League or Fantasy Premier League.
