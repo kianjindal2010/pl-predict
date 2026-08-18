@@ -1,0 +1,18 @@
+# Persistent cache and output paths
+data_root: "data"
+raw_dir: "data/raw"
+processed_dir: "data/processed"
+external_dir: "data/external"
+
+# Sub-directories under raw/
+fbref_dir: "data/raw/fbref"
+understat_dir: "data/raw/understat"
+football_data_dir: "data/raw/football_data"
+elo_dir: "data/raw/elo"
+whoscored_dir: "data/raw/whoscored"
+weather_dir: "data/raw/weather"
+
+# Merged output
+merged_matches: "data/processed/matches.parquet"
+merged_teams: "data/processed/teams.parquet"
+feature_store: "data/processed/features.parquet"

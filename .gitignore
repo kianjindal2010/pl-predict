@@ -1,0 +1,29 @@
+# Python environments and tooling
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Local runtime state and generated outputs
+logs/
+data/raw/fpl/fpl_snapshot.json
+data/processed/fpl_hybrid_picks.json
+data/processed/fixtures_2627_pred.json
+*.log
+
+# Installer and operating-system files
+installer-test*/
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# Deployment metadata and environment secrets
+.vercel/
+.env
+.env.*
+!.env.example

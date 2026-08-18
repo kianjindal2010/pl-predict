@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PL Predict</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>PL Predict</h1>
+    <span>Premier League prediction engine</span>
+  </div>
+  <div class="nav">
+    <button data-tab="overview">Overview</button>
+    <button data-tab="predict">Predict</button>
+    <button data-tab="season">Season Sim</button>
+    <button data-tab="performance">Model</button>
+    <button data-tab="players">Players</button>
+    <button data-tab="shots">Shot Maps</button>
+    <button data-tab="teams">Teams</button>
+    <button data-tab="referees">Referees</button>
+    <button data-tab="features">Features</button>
+  </div>
+</div>
+
+<div class="container">
+  <div id="tab-overview"><div id="overview-content"></div></div>
+  <div id="tab-predict" class="hidden"><div id="predict-content"></div></div>
+  <div id="tab-season" class="hidden"><div id="season-content"></div></div>
+  <div id="tab-performance" class="hidden"><div id="performance-content"></div></div>
+  <div id="tab-players" class="hidden"><div id="players-content"></div></div>
+  <div id="tab-shots" class="hidden"><div id="shots-content"></div></div>
+  <div id="tab-teams" class="hidden"><div id="teams-content"></div></div>
+  <div id="tab-referees" class="hidden"><div id="referees-content"></div></div>
+  <div id="tab-features" class="hidden"><div id="features-content"></div></div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

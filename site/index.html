@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Install PL Predict, a local Fantasy Premier League projection dashboard." />
+    <title>PL Predict — Live FPL projections</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <nav><a class="brand" href="#top">PL <span>Predict</span></a><a href="https://github.com/kianjindal2010/pl-predict">GitHub ↗</a></nav>
+      <section class="hero" id="top">
+        <p class="eyebrow">LOCAL FPL INTELLIGENCE</p>
+        <h1>Fresh picks.<br /><em>Better context.</em></h1>
+        <p class="lede">PL Predict refreshes official Fantasy Premier League data, combines it with the match model, and opens a private dashboard on your own computer.</p>
+        <div class="command-wrap">
+          <code id="install-command">irm https://raw.githubusercontent.com/kianjindal2010/pl-predict/main/scripts/install.ps1 | iex</code>
+          <button id="copy-command" type="button">Copy install command</button>
+        </div>
+        <p class="micro">Windows 10/11 · PowerShell · installs Git and Python 3.12 with Winget if needed</p>
+      </section>
+      <section class="steps" aria-label="How it works">
+        <article><span>01</span><h2>Install once</h2><p>Copy the command above into PowerShell. PL Predict installs under your user account—no administrator access required.</p></article>
+        <article><span>02</span><h2>Open a new terminal</h2><p>Then type <code>pl-predict</code> in PowerShell or Command Prompt, from any folder.</p></article>
+        <article><span>03</span><h2>Get live picks</h2><p>It refreshes official FPL data, selects the nearest upcoming gameweek, recalculates projections, and opens the dashboard.</p></article>
+      </section>
+      <section class="hybrid">
+        <p class="eyebrow">HYBRID xP</p>
+        <h2>Not a replacement for official FPL xP.<br />A second signal beside it.</h2>
+        <div class="formula"><b>55%</b> official FPL expected points <i>+</i> <b>45%</b> PL Predict model contribution</div>
+        <p>Official availability, player form and FPL expected points stay visible. The PL Predict contribution uses the current match model’s win, clean-sheet and expected-goal outlook for every upcoming fixture.</p>
+      </section>
+      <section class="help">
+        <div><p class="eyebrow">LOCAL BY DESIGN</p><h2>Your dashboard runs at <code>127.0.0.1:8000</code>.</h2></div>
+        <p>Vercel hosts this installer page only; your data, model and dashboard stay on your Windows computer. Launching the app always fetches the latest official FPL player, availability, fixture and event data—it does not automatically retrain the historical model.</p>
+      </section>
+      <section class="troubleshooting">
+        <h2>Quick help</h2>
+        <details><summary><code>pl-predict</code> is not recognised</summary><p>Close the terminal after installation, open a new PowerShell or Command Prompt window, and try again. The installer adds its launcher to your user PATH.</p></details>
+        <details><summary>The official data refresh failed</summary><p>Check your internet connection and run <code>pl-predict refresh-fpl</code>. The dashboard can still start with its last local data.</p></details>
+        <details><summary>How do I update the app?</summary><p>Run the installer command again. It safely pulls the latest app code without deleting local runtime snapshots.</p></details>
+      </section>
+    </main>
+    <footer>PL Predict · FPL analytics for personal use · <a href="https://github.com/kianjindal2010/pl-predict/blob/main/LICENSE">MIT License</a></footer>
+    <script src="app.js"></script>
+  </body>
+</html>
