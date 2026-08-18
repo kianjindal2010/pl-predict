@@ -20,6 +20,22 @@ PL Predict turns open Premier League data into a complete local dashboard. Use i
 | Model diagnostics | Walk-forward accuracy, ranked probability score, calibration and feature importance |
 | FPL Picks | Official FPL xP, availability and fixtures plus PL Predict's fixture-level model contribution |
 
+## See the dashboard
+
+| Fixture forecasts | Season simulation |
+| --- | --- |
+| ![Upcoming fixture probabilities](docs/images/dashboard-overview.png) | ![Season-simulation final table](docs/images/dashboard-season-sim.png) |
+
+| Model evaluation |
+| --- |
+| ![Walk-forward accuracy, calibration and ranked probability score](docs/images/dashboard-model.png) |
+
+## Packaged data snapshot
+
+The included model/data snapshot contains **12,705 Premier League matches** across **33 seasons (1993–94 to 2025–26)** and **51 teams**. The current chronological holdout has **1,102 matches**; the packaged ensemble records **48.4% accuracy** and a **0.2185 Ranked Probability Score** on that holdout. Lower RPS is better.
+
+These figures are a transparent snapshot of the shipped artifacts—not a promise of future performance. Use the dashboard’s Model view and `pl-predict evaluate --ensemble` to inspect results after updating or retraining.
+
 ## Install on Windows
 
 Open PowerShell and run this one command:
