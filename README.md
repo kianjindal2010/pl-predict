@@ -1,6 +1,6 @@
 # PL Predict
 
-Research-grade Premier League match prediction engine using only free/open-source data. It includes a local Fantasy Premier League dashboard with fresh official data and Hybrid xP projections.
+PL Predict is a comprehensive, local Premier League prediction and analytics platform built with free/open-source data. It covers fixture forecasts, expected goals, likely scorelines, season simulations, model evaluation, team and player analysis, shots, referees, and an optional FPL Picks view with Hybrid xP.
 
 ## Windows install
 
@@ -16,7 +16,7 @@ Open a **new** PowerShell or Command Prompt window and run:
 pl-predict
 ```
 
-That refreshes the official FPL player, availability, event and fixture feeds, selects the nearest upcoming gameweek (or the earliest unfinished one), recalculates Hybrid xP, and opens the local dashboard at `http://127.0.0.1:8000`. The installer uses Winget to install Git and Python 3.12 if necessary, installs under `%LOCALAPPDATA%\PLPredict`, and never deletes an existing non-repository directory or local runtime snapshots.
+That opens the complete local Premier League dashboard at `http://127.0.0.1:8000`. It also refreshes the official FPL player, availability, event and fixture feeds for the optional FPL Picks view, selects the nearest upcoming gameweek (or the earliest unfinished one), and recalculates Hybrid xP. The installer uses Winget to install Git and Python 3.12 if necessary, installs under `%LOCALAPPDATA%\PLPredict`, and never deletes an existing non-repository directory or local runtime snapshots.
 
 Run the same installer command later to safely fetch app updates. Launches fetch current FPL data but do not silently retrain the historical match model.
 
