@@ -91,6 +91,40 @@ def evaluate(
         run_backtest(seasons=seasons)
 
 
+@app.command("rolling-evaluate")
+def rolling_evaluate(
+    seasons: list[str] = typer.Option(
+        None, "--seasons", "-s", help="Test seasons to evaluate chronologically"
+    ),
+    min_train_seasons: int = typer.Option(
+        3, "--min-train-seasons", min=1, help="Minimum historical seasons before testing"
+    ),
+):
+    """Run leakage-safe rolling evaluation with a uniform baseline."""
+    from pl_predict.evaluation.backtest import run_rolling_evaluation
+
+    result = run_rolling_evaluation(
+        seasons=seasons,
+        min_train_seasons=min_train_seasons,
+    )
+    overall = result["overall"]
+    console.print(
+        f"[green]Evaluated {result['n_matches']} matches across "
+        f"{len(result['folds'])} chronological folds.[/green]"
+    )
+    if overall:
+        console.print(
+            f"DC RPS={overall['rps']:.4f} | "
+            f"accuracy={overall['accuracy']:.3f} | "
+            f"log loss={overall['log_loss']:.4f} | "
+            f"ECE={overall['ece']:.4f}"
+        )
+    console.print(
+        f"Predictions: {result['predictions_path']}\n"
+        f"Fold metrics: {result['evaluation_path']}"
+    )
+
+
 @app.command()
 def season(
     n_simulations: int = typer.Option(

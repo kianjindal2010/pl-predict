@@ -1,5 +1,9 @@
+import polars as pl
+
 from pl_predict import cli
 from pl_predict.dashboard.app import _fpl_squad_analysis
+from pl_predict.evaluation.backtest import make_rolling_folds
+from pl_predict.evaluation.metrics import ranked_probability_score
 from pl_predict.pipeline.fpl import select_upcoming_gameweek
 
 
@@ -69,3 +73,38 @@ def test_fpl_squad_analysis_picks_captain_and_budgeted_transfer():
     assert result["vice_captain"]["name"] != result["captain"]["name"]
     assert len(result["starting_xi"]) == 11
     assert result["transfers"][0]["buy"]["name"] == "Upgrade"
+
+
+def test_rolling_folds_never_train_on_the_test_season():
+    matches = pl.DataFrame(
+        {
+            "season": ["2020-21", "2020-21", "2021-22", "2021-22", "2022-23", "2022-23"],
+            "date": pl.date_range(
+                pl.date(2020, 8, 1), pl.date(2020, 8, 6), interval="1d", eager=True
+            ),
+        }
+    )
+
+    folds = make_rolling_folds(matches, min_train_seasons=1)
+
+    assert folds == [
+        (["2020-21"], "2021-22"),
+        (["2020-21", "2021-22"], "2022-23"),
+    ]
+
+
+def test_ranked_probability_score_excludes_constant_final_cumulative_term():
+    assert ranked_probability_score(
+        pl.Series([0, 1, 2]).to_numpy(),
+        pl.DataFrame(
+            {
+                "h": [1.0, 0.0, 0.0],
+                "d": [0.0, 1.0, 0.0],
+                "a": [0.0, 0.0, 1.0],
+            }
+        ).to_numpy(),
+    ) == 0.0
+    assert abs(ranked_probability_score(
+        pl.Series([0]).to_numpy(),
+        pl.DataFrame({"h": [1 / 3], "d": [1 / 3], "a": [1 / 3]}).to_numpy(),
+    ) - 5 / 18) < 1e-12

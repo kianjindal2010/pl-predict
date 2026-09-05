@@ -86,7 +86,15 @@ pl-predict season --simulations 5000 --season 2025-26
 
 # Evaluate the ensemble on the chronological holdout
 pl-predict evaluate --ensemble
+
+# Evaluate Dixon-Coles across every chronological rolling fold
+pl-predict rolling-evaluate --min-train-seasons 3
 ```
+
+`rolling-evaluate` trains each fold only on seasons before its test season,
+compares against a uniform-probability baseline, records calibration error, and
+writes per-match provenance to `data/processed/rolling_predictions.parquet` plus
+fold metrics to `data/processed/rolling_evaluation.parquet`.
 
 ## Dashboard
 

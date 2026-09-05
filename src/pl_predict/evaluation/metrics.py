@@ -48,15 +48,17 @@ def brier_score_decomposition(
 
 def ranked_probability_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     """Ranked Probability Score for ordered outcomes (H/D/A coded 0/1/2)."""
-    n = len(y_true)
-    rps = 0.0
-    for i in range(n):
-        cum_true = np.zeros(3)
-        cum_prob = np.zeros(3)
-        cum_true[: int(y_true[i]) + 1] = 1.0
-        cum_prob = np.cumsum(y_prob[i])
-        rps += float(np.sum((cum_prob - cum_true) ** 2))
-    return rps / (2 * n)
+    if y_prob.ndim != 2 or y_prob.shape[1] < 2:
+        raise ValueError("y_prob must be a 2D array with at least two classes")
+    if len(y_true) != len(y_prob):
+        raise ValueError("y_true and y_prob must contain the same number of rows")
+    # The final cumulative probability is always 1 for both the prediction and
+    # the outcome, so including it adds a constant error to every prediction.
+    cumulative_prob = np.cumsum(y_prob, axis=1)[:, :-1]
+    cumulative_true = np.cumsum(
+        np.eye(y_prob.shape[1], dtype=float)[y_true.astype(int)], axis=1
+    )[:, :-1]
+    return float(np.mean(np.sum((cumulative_prob - cumulative_true) ** 2, axis=1)) / (y_prob.shape[1] - 1))
 
 
 def calibration_curve(

@@ -14,6 +14,135 @@ from .metrics import (
 from ..models.poisson import fit_dixon_coles, predict_dixon_coles
 
 
+def _season_order(matches: pl.DataFrame) -> list[str]:
+    """Return seasons in chronological order using their latest match date."""
+    return (
+        matches.sort("date")
+        .group_by("season")
+        .agg(pl.col("date").max().alias("last_date"))
+        .sort("last_date")["season"]
+        .to_list()
+    )
+
+
+def make_rolling_folds(
+    matches: pl.DataFrame,
+    min_train_seasons: int = 3,
+    test_seasons: Optional[list[str]] = None,
+) -> list[tuple[list[str], str]]:
+    """Create chronological folds with no future season in a training set."""
+    ordered = _season_order(matches)
+    if test_seasons is not None:
+        wanted = set(test_seasons)
+        ordered = [season for season in ordered if season in wanted]
+    all_ordered = _season_order(matches)
+    folds = []
+    for season in ordered:
+        index = all_ordered.index(season)
+        if index >= min_train_seasons:
+            folds.append((all_ordered[:index], season))
+    return folds
+
+
+def run_rolling_evaluation(
+    seasons: Optional[list[str]] = None,
+    data_path: Optional[str] = None,
+    min_train_seasons: int = 3,
+) -> dict:
+    """Evaluate Dixon-Coles chronologically and persist fold-level evidence.
+
+    Every fold trains only on seasons strictly before its test season. The
+    returned summary includes a uniform baseline, fold metrics, calibration,
+    and provenance columns for reproducing each prediction.
+    """
+    if data_path is None:
+        from ..pipeline.utils import resolve_path
+
+        data_path = resolve_path("data/processed/matches.parquet")
+    matches = pl.read_parquet(data_path).filter(
+        pl.col("result").is_in(["H", "D", "A"])
+    )
+    folds = make_rolling_folds(matches, min_train_seasons, seasons)
+    prediction_rows = []
+    fold_rows = []
+    labels = {"H": 0, "D": 1, "A": 2}
+
+    for train_seasons, test_season in folds:
+        train = matches.filter(pl.col("season").is_in(train_seasons))
+        test = matches.filter(pl.col("season") == test_season).sort("date")
+        if train.is_empty() or test.is_empty():
+            continue
+        params = fit_dixon_coles(train)
+        y, dc_probs, uniform_probs = [], [], []
+        for row in test.iter_rows(named=True):
+            dc = predict_dixon_coles(params, row["home_team"], row["away_team"])
+            probs = np.asarray([dc["home_win"], dc["draw"], dc["away_win"]], dtype=float)
+            actual = labels[row["result"]]
+            y.append(actual)
+            dc_probs.append(probs)
+            uniform_probs.append([1 / 3, 1 / 3, 1 / 3])
+            prediction_rows.append(
+                {
+                    "date": row["date"],
+                    "season": test_season,
+                    "train_through": train_seasons[-1],
+                    "home_team": row["home_team"],
+                    "away_team": row["away_team"],
+                    "result": row["result"],
+                    "dc_h": float(probs[0]),
+                    "dc_d": float(probs[1]),
+                    "dc_a": float(probs[2]),
+                    "model_version": "dixon-coles-rolling-v1",
+                }
+            )
+        y = np.asarray(y)
+        dc_probs = np.asarray(dc_probs)
+        uniform_probs = np.asarray(uniform_probs)
+        metrics = evaluate_predictions(y, dc_probs)
+        baseline = evaluate_predictions(y, uniform_probs)
+        confidence = dc_probs.max(axis=1)
+        correct = (dc_probs.argmax(axis=1) == y).astype(int)
+        metrics["ece"] = expected_calibration_error(correct, confidence)
+        fold_rows.append(
+            {
+                "season": test_season,
+                "train_through": train_seasons[-1],
+                "n_matches": len(y),
+                **{f"dc_{key}": value for key, value in metrics.items()},
+                **{f"baseline_{key}": value for key, value in baseline.items()},
+            }
+        )
+
+    from ..pipeline.utils import resolve_path
+
+    output_dir = Path(resolve_path("data/processed"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    predictions = pl.DataFrame(prediction_rows)
+    folds_df = pl.DataFrame(fold_rows)
+    predictions.write_parquet(str(output_dir / "rolling_predictions.parquet"))
+    folds_df.write_parquet(str(output_dir / "rolling_evaluation.parquet"))
+    summary = {
+        "model_version": "dixon-coles-rolling-v1",
+        "min_train_seasons": min_train_seasons,
+        "folds": folds_df.to_dicts(),
+        "predictions_path": str(output_dir / "rolling_predictions.parquet"),
+        "evaluation_path": str(output_dir / "rolling_evaluation.parquet"),
+        "n_matches": len(prediction_rows),
+    }
+    if prediction_rows:
+        y = np.asarray([labels[row["result"]] for row in prediction_rows])
+        probs = np.asarray(
+            [[row["dc_h"], row["dc_d"], row["dc_a"]] for row in prediction_rows]
+        )
+        summary["overall"] = evaluate_predictions(y, probs)
+        summary["overall"]["ece"] = expected_calibration_error(
+            (probs.argmax(axis=1) == y).astype(int), probs.max(axis=1)
+        )
+    else:
+        summary["overall"] = {}
+    return summary
+
+
 def run_backtest(
     seasons: Optional[list[str]] = None,
     data_path: Optional[str] = None,

@@ -963,8 +963,8 @@ async def performance():
     def rps_vec(probs, y):
         out = []
         for p, yy in zip(probs, y):
-            cp = np.cumsum(p)
-            ct = np.cumsum(np.eye(3)[yy])
+            cp = np.cumsum(p)[:-1]
+            ct = np.cumsum(np.eye(3)[yy])[:-1]
             out.append(float(np.sum((cp - ct) ** 2) / 2))
         return np.array(out)
 
@@ -1040,8 +1040,7 @@ async def performance():
     wrong.sort(key=lambda r: -r["conf"])
 
     hist = np.histogram(ens_rps, bins=20, range=(0, np.quantile(ens_rps, 0.99)))
-    return _clean(
-        {
+    response = {
             "n_matches": len(y),
             "ens_acc": float(np.mean(ens_pred == y)),
             "dc_acc": float(np.mean(dc_pred == y)),
@@ -1052,7 +1051,23 @@ async def performance():
             "rps_hist": [[float(v) for v in hist[1][:-1]], [float(v) for v in hist[0]]],
             "worst": wrong[:20],
         }
-    )
+    rolling = _read_parquet("rolling_evaluation.parquet")
+    if rolling is not None and not rolling.is_empty():
+        response["rolling_evaluation"] = {
+            "folds": rolling.to_dicts(),
+            "model": "Dixon-Coles rolling",
+            "n_matches": int(rolling["n_matches"].sum()),
+            "rps": float(
+                np.average(rolling["dc_rps"].to_numpy(), weights=rolling["n_matches"].to_numpy())
+            ),
+            "accuracy": float(
+                np.average(
+                    rolling["dc_accuracy"].to_numpy(),
+                    weights=rolling["n_matches"].to_numpy(),
+                )
+            ),
+        }
+    return _clean(response)
 
 
 # ---------------------------------------------------------------------------

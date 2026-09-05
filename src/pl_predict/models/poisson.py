@@ -103,8 +103,16 @@ def fit_dixon_coles(matches) -> dict:
 
 def scoreline_matrix(params: dict, home: str, away: str) -> tuple:
     """Return (probs, lam, mu) — 7x7 scoreline matrix (i=home goals, j=away goals)."""
-    lam = np.exp(params["attack"][home] + params["defence"][away] + params["home_adv"])
-    mu = np.exp(params["attack"][away] + params["defence"][home])
+    # New or promoted teams may not exist in a historical training window.
+    # Use the fitted league-average rating instead of failing the whole fold.
+    attack_mean = float(np.mean(list(params["attack"].values())))
+    defence_mean = float(np.mean(list(params["defence"].values())))
+    home_attack = params["attack"].get(home, attack_mean)
+    away_attack = params["attack"].get(away, attack_mean)
+    home_defence = params["defence"].get(home, defence_mean)
+    away_defence = params["defence"].get(away, defence_mean)
+    lam = np.exp(home_attack + away_defence + params["home_adv"])
+    mu = np.exp(away_attack + home_defence)
 
     max_goals = 6
     probs = np.zeros((max_goals + 1, max_goals + 1))
