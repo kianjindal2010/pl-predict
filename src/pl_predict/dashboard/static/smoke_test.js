@@ -34,7 +34,7 @@ bodyEl.appendChild = (c) => {
   return origAppend(c);
 };
 
-const NAV_TABS = ['overview', 'predict', 'season', 'performance', 'players', 'shots', 'teams', 'referees', 'features'];
+const NAV_TABS = ['overview', 'predict', 'season', 'performance', 'fpl', 'players', 'shots', 'teams', 'referees', 'features'];
 const navButtons = NAV_TABS.map(t => { const b = makeEl('button'); b.dataset.tab = t; return b; });
 
 global.document = {
@@ -98,7 +98,7 @@ async function renderTab(hash, waitForId) {
   if (toasts.length) throw new Error('toasts: ' + toasts.join(' | '));
 }
 
-const tabs = ['overview', 'predict', 'season', 'performance', 'players', 'shots', 'teams', 'referees', 'features'];
+const tabs = ['overview', 'predict', 'season', 'performance', 'fpl', 'players', 'shots', 'teams', 'referees', 'features'];
 (async () => {
   // wait for the server's startup cache to finish (WARM_DONE flag)
   for (let i = 0; i < 120; i++) {

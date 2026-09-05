@@ -3,9 +3,10 @@ const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const API = '';
 
-const TABS = ['overview', 'predict', 'season', 'performance', 'players', 'shots', 'teams', 'referees', 'features'];
+const TABS = ['overview', 'predict', 'season', 'performance', 'fpl', 'players', 'shots', 'teams', 'referees', 'features'];
 const TAB_LABEL = {
   overview: 'Overview', predict: 'Predict', season: 'Season Sim', performance: 'Model Performance',
+  fpl: 'FPL Planner',
   players: 'Players', shots: 'Shot Maps', teams: 'Teams', referees: 'Referees', features: 'Features',
 };
 const TEAM_MAP = { 'Nottm Forest': "Nott'm Forest", 'Nottingham Forest': "Nott'm Forest", "Nott'm Forest": "Nott'm Forest", 'Wolves': 'Wolves', 'Man City': 'Man City', 'Man United': 'Man United', 'Manchester City': 'Man City', 'Manchester United': 'Man United', 'Newcastle': 'Newcastle' };
@@ -66,7 +67,8 @@ function render() {
     predict: () => loadPredict(params),
     season: loadSeason,
     performance: loadPerformance,
-    players: loadPlayers,
+    fpl: loadFplPlanner,
+    players: loadPlayerAnalytics,
     shots: loadShots,
     teams: () => loadTeamsView(sub[0] || null),
     referees: loadReferees,
@@ -80,6 +82,107 @@ function navTo(tab, params) {
   let hash = '#/' + tab;
   if (params) hash += '?' + new URLSearchParams(params).toString();
   location.hash = hash;
+}
+
+/* ---------- FPL Planner ---------- */
+let fplPlannerState = null;
+
+async function loadFplPlanner() {
+  showLoading('#fpl-content');
+  try {
+    fplPlannerState = await fetchJSON('/api/fpl/planner?horizon=6');
+    renderFplPlanner();
+  } catch (e) {
+    toast('Failed to load FPL planner: ' + e.message);
+    $('#fpl-content').innerHTML = '<div class="empty">FPL data is temporarily unavailable.</div>';
+  }
+}
+
+function fplPlayerLabel(p) {
+  return `${esc(p.name)} · ${esc(p.team)} · £${fmtNum(p.price, 1)}m`;
+}
+
+function renderFplPlanner(analysis = null) {
+  const data = fplPlannerState;
+  const gws = data.gameweeks || [];
+  const activeGw = String((analysis && analysis.gameweek) || data.next_gameweek);
+  const players = data.players || [];
+  $('#fpl-content').innerHTML = `
+    <div class="fpl-hero">
+      <div><span class="eyebrow">FANTASY PREMIER LEAGUE</span>
+        <h2>Plan the next six gameweeks</h2>
+        <p>Blend official FPL projections with PL Predict fixture context, then test your squad before the deadline.</p>
+      </div>
+      <div class="fpl-hero-stat"><span>Next deadline</span><strong>${shortDate(gws[0]?.deadline)}</strong><small>GW ${data.next_gameweek}</small></div>
+    </div>
+    <div class="fpl-layout">
+      <div class="card fpl-control-card">
+        <div class="section-kicker">Your squad</div>
+        <h3>Import or paste your team</h3>
+        <p class="muted">Use your public manager ID, or paste 15 official player IDs separated by commas.</p>
+        <div class="toolbar fpl-form">
+          <div><label>Manager ID</label><input id="fpl-manager-id" type="text" inputmode="numeric" placeholder="e.g. 1234567"></div>
+          <div><label>Bank (£m)</label><input id="fpl-bank" type="number" min="0" step="0.1" value="0.0"></div>
+          <div><label>Gameweek</label><select id="fpl-gw">${gws.map(g => `<option value="${g.id}"${String(g.id) === activeGw ? ' selected' : ''}>GW ${g.id}</option>`).join('')}</select></div>
+        </div>
+        <label>Player IDs <span class="muted">(optional if Manager ID is supplied)</span></label>
+        <textarea id="fpl-player-ids" rows="3" placeholder="e.g. 1, 5, 14, 27, ..."></textarea>
+        <button class="primary-btn" id="fpl-analyze">Analyze my squad</button>
+        <div class="hint">Player IDs are shown in the projections table below. Manager IDs are read-only public FPL data.</div>
+      </div>
+      <div class="card fpl-insight-card">
+        <div class="section-kicker">Decision support</div>
+        <h3>${analysis ? `GW ${analysis.gameweek} recommendations` : 'Captain and transfer advice'}</h3>
+        <div id="fpl-insights">${analysis ? renderFplInsights(analysis) : '<div class="empty">Analyze your squad to see a legal XI, captain, vice-captain and transfer gains.</div>'}</div>
+      </div>
+    </div>
+    <div class="section-title">Projected players</div>
+    <div class="card">
+      <div class="toolbar"><div><label>Gameweek</label><select id="fpl-table-gw">${gws.map(g => `<option value="${g.id}"${String(g.id) === activeGw ? ' selected' : ''}>GW ${g.id}</option>`).join('')}</select></div><div><label>Position</label><select id="fpl-table-pos"><option value="">All</option><option>GK</option><option>DEF</option><option>MID</option><option>FWD</option></select></div></div>
+      <div class="sim-table"><table><thead><tr><th>ID</th><th>Player</th><th>Pos</th><th>Price</th><th>xP</th><th>Fixture</th><th>Form</th><th>Status</th></tr></thead><tbody id="fpl-projection-body"></tbody></table></div>
+    </div>`;
+  renderFplProjectionRows(activeGw);
+  $('#fpl-analyze').addEventListener('click', analyzeFplSquad);
+  $('#fpl-table-gw').addEventListener('change', e => renderFplProjectionRows(e.target.value));
+  $('#fpl-table-pos').addEventListener('change', () => renderFplProjectionRows($('#fpl-table-gw').value));
+}
+
+function renderFplProjectionRows(gameweek) {
+  const pos = $('#fpl-table-pos')?.value || '';
+  const rows = (fplPlannerState.players || []).filter(p => !pos || p.position === pos)
+    .sort((a, b) => (b.projections[gameweek]?.xP || 0) - (a.projections[gameweek]?.xP || 0)).slice(0, 80);
+  $('#fpl-projection-body').innerHTML = rows.map(p => {
+    const projection = p.projections[gameweek] || {};
+    const fx = (projection.fixtures || []).map(f => `${f.home ? 'vs' : '@'} ${esc(f.opponent)}`).join(' / ') || 'Blank';
+    const status = p.availability == null || p.availability >= 100 ? 'Available' : `${p.availability}%`;
+    return `<tr><td><span class="badge badge-blue">${p.player_id}</span></td><td><b>${fplPlayerLabel(p)}</b></td><td>${posBadge(p.position)}</td><td>£${fmtNum(p.price, 1)}m</td><td><b class="fpl-pts">${fmtNum(projection.xP, 1)}</b></td><td>${fx}</td><td>${fmtNum(p.form, 1)}</td><td>${status}</td></tr>`;
+  }).join('') || '<tr><td colspan="8" class="empty">No players found.</td></tr>';
+}
+
+async function analyzeFplSquad() {
+  const ids = ($('#fpl-player-ids').value || '').split(',').map(v => Number(v.trim())).filter(Number.isInteger);
+  const body = {
+    manager_id: $('#fpl-manager-id').value.trim(),
+    player_ids: ids,
+    bank: Number($('#fpl-bank').value || 0),
+    gameweek: $('#fpl-gw').value,
+  };
+  const button = $('#fpl-analyze'); button.disabled = true;
+  try {
+    const result = await fetchJSON('/api/fpl/analyze', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+    renderFplPlanner(result);
+    toast('Squad recommendations updated', 'info');
+  } catch (e) { toast('Could not analyze squad: ' + e.message); }
+  button.disabled = false;
+}
+
+function renderFplInsights(result) {
+  const captain = result.captain, vice = result.vice_captain;
+  const playerCard = (p, label) => p ? `<div class="recommendation"><span class="recommendation-label">${label}</span><strong>${esc(p.name)}</strong><span>${esc(p.team)} · ${fmtNum(p.projections[String(result.gameweek)]?.xP, 1)} xP</span></div>` : '';
+  const transfers = (result.transfers || []).slice(0, 5).map(t => `<tr><td>${esc(t.sell.name)}</td><td>→</td><td>${esc(t.buy.name)}</td><td class="fpl-pts">+${fmtNum(t.gain, 1)}</td><td>${t.cost_delta > 0 ? '+' : ''}${fmtNum(t.cost_delta, 1)}m</td></tr>`).join('');
+  return `<div class="recommendation-grid">${playerCard(captain, 'Captain')} ${playerCard(vice, 'Vice-captain')}</div>
+    <div class="fpl-lineup"><span class="section-kicker">Starting XI</span>${(result.starting_xi || []).map(p => `<span class="chip chip-blue">${esc(p.name)} · ${fmtNum(p.projections[String(result.gameweek)]?.xP, 1)}</span>`).join('')}</div>
+    <h4 class="subheading">Transfer ideas</h4><table class="compact-table"><thead><tr><th>Sell</th><th></th><th>Buy</th><th>GW gain</th><th>Cost</th></tr></thead><tbody>${transfers || '<tr><td colspan="5" class="empty">No positive-value moves within your budget.</td></tr>'}</tbody></table>`;
 }
 
 /* ---------- Overview ---------- */
@@ -496,7 +599,7 @@ function xgDelta(actual, expected) {
   return `<span style="${cls}">${d > 0 ? '+' : ''}${d.toFixed(1)}</span>`;
 }
 
-async function loadPlayers() {
+async function loadPlayerAnalytics() {
   showLoading('#players-content');
   try {
     const [seas, teamsRes] = await Promise.all([fetchJSON('/api/seasons'), fetchJSON('/api/teams')]);
@@ -710,7 +813,7 @@ async function openPlayer(pid, name) {
 }
 
 /* ---------- Live FPL predictions ---------- */
-async function loadPlayers() {
+async function loadFplPicks() {
   showLoading('#players-content');
   try {
     const result = await fetchJSON('/api/fpl/picks?top=100');

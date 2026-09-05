@@ -572,6 +572,225 @@ def _build_fpl_picks(snapshot: dict, position: Optional[str] = None) -> dict:
     )
 
 
+def _fpl_projection_catalog(snapshot: dict, horizon: int = 6) -> dict:
+    """Build reusable multi-gameweek projections from one official snapshot."""
+    from pl_predict.pipeline.fpl import select_upcoming_gameweek
+
+    bootstrap = snapshot["bootstrap"]
+    events = bootstrap.get("events", [])
+    next_event = select_upcoming_gameweek(events)
+    upcoming = [
+        event for event in sorted(events, key=lambda item: item.get("id", 0))
+        if event.get("id", 0) >= next_event["id"] and not event.get("finished")
+    ][:max(1, min(horizon, 10))]
+    positions = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+    teams = {team["id"]: team["name"] for team in bootstrap["teams"]}
+    fixtures_by_event_team: dict[tuple[int, int], list] = {}
+    for fixture in snapshot["fixtures"]:
+        event_id = fixture.get("event")
+        if event_id is None:
+            continue
+        fixtures_by_event_team.setdefault((event_id, fixture["team_h"]), []).append(
+            (fixture, True)
+        )
+        fixtures_by_event_team.setdefault((event_id, fixture["team_a"]), []).append(
+            (fixture, False)
+        )
+
+    def project(player: dict, event: dict) -> dict:
+        position = positions.get(player["element_type"], "")
+        team_name = teams[player["team"]]
+        availability = player.get("chance_of_playing_next_round")
+        availability_factor = 1.0 if availability is None else float(availability) / 100
+        expected_minutes = min(90.0, 25.0 + 65.0 * min(1.0, player["starts"] / 38))
+        expected_minutes *= availability_factor
+        minutes_factor = expected_minutes / 90.0
+        goal_points = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}[position]
+        clean_sheet_points = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}[position]
+        player_xg90 = float(player.get("expected_goals_per_90") or 0.0)
+        player_xa90 = float(player.get("expected_assists_per_90") or 0.0)
+        fixtures = []
+        xp = 0.0
+        for fixture, is_home in fixtures_by_event_team.get(
+            (event["id"], player["team"]), []
+        ):
+            opponent_id = fixture["team_a"] if is_home else fixture["team_h"]
+            opponent = teams[opponent_id]
+            home, away = (team_name, opponent) if is_home else (opponent, team_name)
+            prediction = _cached_prediction(
+                team_name_normalise(home), team_name_normalise(away)
+            )
+            win_probability = None
+            clean_sheet_probability = None
+            team_xg = None
+            if prediction:
+                win_probability = (
+                    prediction["home_win"] if is_home else prediction["away_win"]
+                )
+                clean_sheet_probability = (
+                    prediction["clean_sheet_home"]
+                    if is_home else prediction["clean_sheet_away"]
+                )
+                team_xg = (
+                    prediction["expected_home_goals"]
+                    if is_home else prediction["expected_away_goals"]
+                )
+            attack_factor = (team_xg or 1.35) / 1.35
+            fixture_xp = 2 * min(1.0, expected_minutes / 60.0)
+            fixture_xp += goal_points * player_xg90 * minutes_factor * attack_factor
+            fixture_xp += 3 * player_xa90 * minutes_factor * attack_factor
+            fixture_xp += clean_sheet_points * (clean_sheet_probability or 0.0) * minutes_factor
+            xp += fixture_xp
+            fixtures.append({
+                "opponent": opponent,
+                "home": is_home,
+                "difficulty": fixture.get(
+                    "team_h_difficulty" if is_home else "team_a_difficulty"
+                ),
+                "kickoff": fixture.get("kickoff_time"),
+                "xP": round(fixture_xp, 2),
+                "win_probability": win_probability,
+                "clean_sheet_probability": clean_sheet_probability,
+                "team_expected_goals": team_xg,
+            })
+        if event["id"] == next_event["id"]:
+            official_xp = float(player.get("ep_next") or 0.0)
+            xp = 0.55 * official_xp + 0.45 * xp
+        return {
+            "xP": round(xp, 2),
+            "fixtures": fixtures,
+            "official_xp": float(player.get("ep_next") or 0.0),
+        }
+
+    players = []
+    for player in bootstrap["elements"]:
+        position = positions.get(player["element_type"], "")
+        projections = {
+            str(event["id"]): project(player, event) for event in upcoming
+        }
+        players.append({
+            "player_id": player["id"],
+            "name": player["web_name"],
+            "team": teams[player["team"]],
+            "position": position,
+            "price": player["now_cost"] / 10,
+            "price_tenths": player["now_cost"],
+            "form": float(player.get("form") or 0.0),
+            "total_points": player["total_points"],
+            "ownership": float(player.get("selected_by_percent") or 0.0),
+            "availability": player.get("chance_of_playing_next_round"),
+            "projections": projections,
+        })
+    return {
+        "gameweeks": [
+            {
+                "id": event["id"],
+                "name": event.get("name"),
+                "deadline": event.get("deadline_time"),
+            }
+            for event in upcoming
+        ],
+        "players": players,
+        "next_gameweek": next_event["id"],
+        "refreshed_at": snapshot.get("fetched_at"),
+    }
+
+
+def _select_legal_fpl_xi(players: list[dict], gameweek: str) -> list[dict]:
+    """Select an XI while respecting the minimum FPL formation rules."""
+    by_position = {
+        position: sorted(
+            [p for p in players if p["position"] == position],
+            key=lambda p: p["projections"].get(gameweek, {}).get("xP", 0),
+            reverse=True,
+        )
+        for position in ("GK", "DEF", "MID", "FWD")
+    }
+    minimums = {"GK": 1, "DEF": 3, "MID": 2, "FWD": 1}
+    if any(len(by_position[position]) < minimum for position, minimum in minimums.items()):
+        raise ValueError("Squad does not contain enough players for a legal FPL formation.")
+    selected = (
+        by_position["GK"][:1] + by_position["DEF"][:3]
+        + by_position["MID"][:2] + by_position["FWD"][:1]
+    )
+    counts = {position: minimums[position] for position in minimums}
+    maximums = {"GK": 1, "DEF": 5, "MID": 5, "FWD": 3}
+    remaining = [p for p in players if p not in selected]
+    for player in sorted(
+        remaining,
+        key=lambda p: p["projections"].get(gameweek, {}).get("xP", 0),
+        reverse=True,
+    ):
+        if len(selected) == 11:
+            break
+        if counts[player["position"]] < maximums[player["position"]]:
+            selected.append(player)
+            counts[player["position"]] += 1
+    if len(selected) != 11:
+        raise ValueError("Squad cannot produce a legal starting XI.")
+    return selected
+
+
+def _fpl_squad_analysis(catalog: dict, player_ids: list[int], gameweek: str,
+                        bank: float = 0.0) -> dict:
+    """Return lineup, captaincy, and budget-aware replacement suggestions."""
+    players = catalog["players"]
+    selected_ids = set(player_ids)
+    selected = [p for p in players if p["player_id"] in selected_ids]
+    if not selected:
+        raise ValueError("No valid FPL player IDs were supplied.")
+    if len(selected) != 15:
+        raise ValueError("Enter exactly 15 valid FPL player IDs.")
+    xi = _select_legal_fpl_xi(selected, gameweek)
+    bench = [p for p in selected if p not in xi]
+    ranked_xi = sorted(
+        xi, key=lambda p: p["projections"].get(gameweek, {}).get("xP", 0),
+        reverse=True,
+    )
+    captain = ranked_xi[0] if ranked_xi else None
+    vice = ranked_xi[1] if len(ranked_xi) > 1 else None
+    suggestions = []
+    team_counts = {}
+    for player in selected:
+        team_counts[player["team"]] = team_counts.get(player["team"], 0) + 1
+    for current in selected:
+        current_xp = current["projections"].get(gameweek, {}).get("xP", 0)
+        replacements = [
+            candidate for candidate in players
+            if candidate["player_id"] not in selected_ids
+            and candidate["position"] == current["position"]
+            and candidate["price_tenths"] <= current["price_tenths"] + round(bank * 10)
+            and (
+                candidate["team"] == current["team"]
+                or team_counts.get(candidate["team"], 0) < 3
+            )
+        ]
+        replacements.sort(
+            key=lambda p: p["projections"].get(gameweek, {}).get("xP", 0) - current_xp,
+            reverse=True,
+        )
+        if replacements:
+            target = replacements[0]
+            gain = target["projections"].get(gameweek, {}).get("xP", 0) - current_xp
+            if gain > 0.2:
+                suggestions.append({
+                    "sell": current,
+                    "buy": target,
+                    "gain": round(gain, 2),
+                    "cost_delta": round(target["price"] - current["price"], 1),
+                })
+    suggestions.sort(key=lambda item: item["gain"], reverse=True)
+    return _clean({
+        "gameweek": int(gameweek),
+        "squad": selected,
+        "starting_xi": xi,
+        "bench": bench,
+        "captain": captain,
+        "vice_captain": vice,
+        "transfers": suggestions[:8],
+    })
+
+
 def prime_fpl_picks() -> dict:
     """Refresh official data and persist fresh Hybrid xP before dashboard launch."""
     snapshot = _fpl_snapshot(force=True)
@@ -580,6 +799,53 @@ def prime_fpl_picks() -> dict:
     FPL_PICKS_CACHE_PATH.write_text(_json.dumps(data, indent=2), encoding="utf-8")
     CACHE["fpl_picks"] = data
     return data
+
+
+@app.get("/api/fpl/planner")
+async def fpl_planner(horizon: int = Query(6, ge=1, le=10)):
+    """Return player projections for the next several gameweeks."""
+    try:
+        cache_key = f"fpl_catalog:{horizon}"
+        data = CACHE.get(cache_key)
+        if data is None:
+            data = _fpl_projection_catalog(_fpl_snapshot(), horizon)
+            CACHE[cache_key] = data
+        return _clean(data)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"FPL planner unavailable: {exc}") from exc
+
+
+@app.post("/api/fpl/analyze")
+async def fpl_analyze(body: dict):
+    """Analyze a manually entered squad or a public FPL manager squad."""
+    try:
+        catalog = CACHE.get("fpl_catalog:6")
+        if catalog is None:
+            catalog = _fpl_projection_catalog(_fpl_snapshot(), 6)
+            CACHE["fpl_catalog:6"] = catalog
+        player_ids = [int(value) for value in body.get("player_ids", [])]
+        manager_id = str(body.get("manager_id") or "").strip()
+        if manager_id:
+            import requests
+            event_id = catalog["next_gameweek"]
+            response = requests.get(
+                f"https://fantasy.premierleague.com/api/entry/{manager_id}/event/{event_id}/picks/",
+                timeout=15,
+            )
+            response.raise_for_status()
+            player_ids = [pick["element"] for pick in response.json().get("picks", [])]
+        if not player_ids:
+            raise ValueError("Enter player IDs or a public FPL manager ID.")
+        gameweek = str(body.get("gameweek") or catalog["next_gameweek"])
+        if gameweek not in {str(item["id"]) for item in catalog["gameweeks"]}:
+            raise ValueError("The selected gameweek is outside the projection horizon.")
+        return _fpl_squad_analysis(
+            catalog, player_ids, gameweek, float(body.get("bank") or 0.0)
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Could not analyze squad: {exc}") from exc
 
 
 @app.get("/api/fpl/picks")
