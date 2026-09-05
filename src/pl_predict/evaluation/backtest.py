@@ -143,6 +143,127 @@ def run_rolling_evaluation(
     return summary
 
 
+def _elo_probabilities(ratings: dict[str, float], home: str, away: str) -> np.ndarray:
+    """Convert Elo ratings into calibrated-shaped H/D/A probabilities."""
+    home_rating = ratings.get(home, 1500.0) + 60.0
+    away_rating = ratings.get(away, 1500.0)
+    win = 1.0 / (1.0 + 10.0 ** ((away_rating - home_rating) / 400.0))
+    draw = 0.27 * np.exp(-abs(home_rating - away_rating) / 500.0)
+    remaining = max(1e-9, 1.0 - draw)
+    return np.asarray([win * remaining, draw, (1.0 - win) * remaining])
+
+
+def _normalize_probabilities(probabilities: np.ndarray) -> np.ndarray:
+    """Keep model outputs valid when upstream estimators have tiny drift."""
+    totals = probabilities.sum(axis=1, keepdims=True)
+    return probabilities / np.clip(totals, 1e-12, None)
+
+
+def _update_elo(
+    ratings: dict[str, float], home: str, away: str, result: str, k_factor: float = 20.0
+) -> None:
+    """Update ratings after a completed match, including an unseen-team prior."""
+    home_rating = ratings.setdefault(home, 1500.0)
+    away_rating = ratings.setdefault(away, 1500.0)
+    expected_home = 1.0 / (1.0 + 10.0 ** ((away_rating - home_rating - 60.0) / 400.0))
+    actual_home = {"H": 1.0, "D": 0.5, "A": 0.0}[result]
+    change = k_factor * (actual_home - expected_home)
+    ratings[home] += change
+    ratings[away] -= change
+
+
+def run_rolling_model_comparison(
+    seasons: Optional[list[str]] = None,
+    data_path: Optional[str] = None,
+    min_train_seasons: int = 3,
+    include_xgb: bool = True,
+) -> dict:
+    """Compare DC, Elo, and XGBoost on identical chronological folds."""
+    if data_path is None:
+        from ..pipeline.utils import resolve_path
+
+        data_path = resolve_path("data/processed/matches.parquet")
+    matches = pl.read_parquet(data_path).filter(
+        pl.col("result").is_in(["H", "D", "A"])
+    )
+    folds = make_rolling_folds(matches, min_train_seasons, seasons)
+    features = None
+    if include_xgb:
+        from ..features.feature_engineering import build_features
+
+        features = build_features(matches)
+    labels = {"H": 0, "D": 1, "A": 2}
+    rows = []
+
+    for train_seasons, test_season in folds:
+        train = matches.filter(pl.col("season").is_in(train_seasons)).sort("date")
+        test = matches.filter(pl.col("season") == test_season).sort("date")
+        dc_params = fit_dixon_coles(train)
+        ratings: dict[str, float] = {}
+        for row in train.iter_rows(named=True):
+            _update_elo(ratings, row["home_team"], row["away_team"], row["result"])
+
+        xgb_model = xgb_columns = None
+        if include_xgb:
+            from ..models.xgb_model import train_xgb
+
+            train_features = features.filter(pl.col("season").is_in(train_seasons))
+            xgb_model, xgb_columns = train_xgb(
+                train_features,
+                params={"n_estimators": 150, "max_depth": 4},
+            )
+            test_features = features.filter(pl.col("season") == test_season).sort("date")
+            xgb_probs = xgb_model.predict_proba(
+                np.nan_to_num(test_features.select(xgb_columns).to_numpy(), nan=0.0)
+            )
+        for index, row in enumerate(test.iter_rows(named=True)):
+            y = labels[row["result"]]
+            dc = predict_dixon_coles(dc_params, row["home_team"], row["away_team"])
+            dc_probs = np.asarray([dc["home_win"], dc["draw"], dc["away_win"]])
+            elo_probs = _elo_probabilities(ratings, row["home_team"], row["away_team"])
+            record = {
+                "season": test_season,
+                "train_through": train_seasons[-1],
+                "date": row["date"],
+                "result": row["result"],
+                "dc_h": dc_probs[0],
+                "dc_d": dc_probs[1],
+                "dc_a": dc_probs[2],
+                "elo_h": elo_probs[0],
+                "elo_d": elo_probs[1],
+                "elo_a": elo_probs[2],
+            }
+            if include_xgb and xgb_probs is not None:
+                record.update(
+                    {
+                        "xgb_h": float(xgb_probs[index, 0]),
+                        "xgb_d": float(xgb_probs[index, 1]),
+                        "xgb_a": float(xgb_probs[index, 2]),
+                    }
+                )
+            rows.append(record)
+            _update_elo(ratings, row["home_team"], row["away_team"], row["result"])
+
+    predictions = pl.DataFrame(rows)
+    from ..pipeline.utils import resolve_path
+
+    output_path = Path(resolve_path("data/processed/rolling_model_comparison.parquet"))
+    predictions.write_parquet(str(output_path))
+    summary = {"n_matches": len(predictions), "models": {}, "path": str(output_path)}
+    y = np.asarray([labels[result] for result in predictions["result"].to_list()])
+    for model in ("dc", "elo", "xgb"):
+        columns = [f"{model}_{outcome}" for outcome in ("h", "d", "a")]
+        if not all(column in predictions.columns for column in columns):
+            continue
+        probs = _normalize_probabilities(predictions.select(columns).to_numpy().astype(float))
+        confidence = probs.max(axis=1)
+        summary["models"][model] = evaluate_predictions(y, probs)
+        summary["models"][model]["ece"] = expected_calibration_error(
+            (probs.argmax(axis=1) == y).astype(int), confidence
+        )
+    return summary
+
+
 def run_backtest(
     seasons: Optional[list[str]] = None,
     data_path: Optional[str] = None,

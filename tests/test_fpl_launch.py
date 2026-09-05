@@ -2,7 +2,7 @@ import polars as pl
 
 from pl_predict import cli
 from pl_predict.dashboard.app import _fpl_squad_analysis
-from pl_predict.evaluation.backtest import make_rolling_folds
+from pl_predict.evaluation.backtest import _elo_probabilities, make_rolling_folds
 from pl_predict.evaluation.metrics import ranked_probability_score
 from pl_predict.pipeline.fpl import select_upcoming_gameweek
 
@@ -108,3 +108,11 @@ def test_ranked_probability_score_excludes_constant_final_cumulative_term():
         pl.Series([0]).to_numpy(),
         pl.DataFrame({"h": [1 / 3], "d": [1 / 3], "a": [1 / 3]}).to_numpy(),
     ) - 5 / 18) < 1e-12
+
+
+def test_elo_probabilities_are_normalized_and_favor_stronger_home_team():
+    probabilities = _elo_probabilities({"Strong": 1700.0, "Weak": 1300.0}, "Strong", "Weak")
+
+    assert abs(probabilities.sum() - 1.0) < 1e-12
+    assert probabilities[0] > probabilities[2]
+    assert probabilities[1] > 0

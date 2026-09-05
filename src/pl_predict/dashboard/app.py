@@ -1070,6 +1070,36 @@ async def performance():
     return _clean(response)
 
 
+@app.get("/api/model-comparison")
+async def model_comparison():
+    """Return rolling model comparison metrics when the report exists."""
+    df = _read_parquet("rolling_model_comparison.parquet")
+    if df is None or df.is_empty():
+        return {
+            "models": [],
+            "message": "No rolling model comparison yet. Run `pl-predict compare-models`.",
+        }
+    import numpy as np
+
+    labels = {"H": 0, "D": 1, "A": 2}
+    y = np.asarray([labels[result] for result in df["result"].to_list()])
+    from pl_predict.evaluation.metrics import evaluate_predictions, expected_calibration_error
+
+    models = []
+    for model in ("dc", "elo", "xgb"):
+        columns = [f"{model}_{outcome}" for outcome in ("h", "d", "a")]
+        if not all(column in df.columns for column in columns):
+            continue
+        probs = df.select(columns).to_numpy().astype(float)
+        probs /= np.clip(probs.sum(axis=1, keepdims=True), 1e-12, None)
+        metrics = evaluate_predictions(y, probs)
+        metrics["ece"] = expected_calibration_error(
+            (probs.argmax(axis=1) == y).astype(int), probs.max(axis=1)
+        )
+        models.append({"model": model, **metrics})
+    return _clean({"n_matches": len(y), "models": models})
+
+
 # ---------------------------------------------------------------------------
 # API: player stats
 # ---------------------------------------------------------------------------

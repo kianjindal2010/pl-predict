@@ -125,6 +125,38 @@ def rolling_evaluate(
     )
 
 
+@app.command("compare-models")
+def compare_models(
+    seasons: list[str] = typer.Option(
+        None, "--seasons", "-s", help="Test seasons to evaluate"
+    ),
+    min_train_seasons: int = typer.Option(
+        3, "--min-train-seasons", min=1, help="Minimum historical seasons before testing"
+    ),
+    no_xgb: bool = typer.Option(
+        False, "--no-xgb", help="Compare only Dixon-Coles and Elo"
+    ),
+):
+    """Compare Dixon-Coles, Elo, and XGBoost on identical rolling folds."""
+    from pl_predict.evaluation.backtest import run_rolling_model_comparison
+
+    result = run_rolling_model_comparison(
+        seasons=seasons,
+        min_train_seasons=min_train_seasons,
+        include_xgb=not no_xgb,
+    )
+    console.print(
+        f"[green]Compared {result['n_matches']} matches across rolling folds.[/green]"
+    )
+    for name, metrics in result["models"].items():
+        console.print(
+            f"{name.upper():4s} RPS={metrics['rps']:.4f} | "
+            f"accuracy={metrics['accuracy']:.3f} | "
+            f"log loss={metrics['log_loss']:.4f} | ECE={metrics['ece']:.4f}"
+        )
+    console.print(f"Predictions: {result['path']}")
+
+
 @app.command()
 def season(
     n_simulations: int = typer.Option(

@@ -89,12 +89,18 @@ pl-predict evaluate --ensemble
 
 # Evaluate Dixon-Coles across every chronological rolling fold
 pl-predict rolling-evaluate --min-train-seasons 3
+
+# Compare Dixon-Coles, Elo, and XGBoost on identical chronological folds
+pl-predict compare-models --min-train-seasons 3
 ```
 
 `rolling-evaluate` trains each fold only on seasons before its test season,
 compares against a uniform-probability baseline, records calibration error, and
 writes per-match provenance to `data/processed/rolling_predictions.parquet` plus
 fold metrics to `data/processed/rolling_evaluation.parquet`.
+`compare-models` writes per-match predictions to
+`data/processed/rolling_model_comparison.parquet`; use `--no-xgb` for a fast
+Dixon-Coles versus Elo comparison.
 
 ## Dashboard
 
