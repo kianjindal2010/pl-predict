@@ -1086,7 +1086,7 @@ async def model_comparison():
     from pl_predict.evaluation.metrics import evaluate_predictions, expected_calibration_error
 
     models = []
-    for model in ("dc", "elo", "xgb"):
+    for model in ("dc", "elo", "xgb", "ensemble"):
         columns = [f"{model}_{outcome}" for outcome in ("h", "d", "a")]
         if not all(column in df.columns for column in columns):
             continue

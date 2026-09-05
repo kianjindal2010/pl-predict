@@ -177,8 +177,14 @@ def run_rolling_model_comparison(
     data_path: Optional[str] = None,
     min_train_seasons: int = 3,
     include_xgb: bool = True,
+    include_ensemble: bool = False,
 ) -> dict:
-    """Compare DC, Elo, and XGBoost on identical chronological folds."""
+    """Compare models on identical chronological folds.
+
+    The ensemble is opt-in because each fold retrains its OOF stacker.  It
+    uses the production ensemble without the optional deep model, making the
+    comparison reproducible on machines without PyTorch.
+    """
     if data_path is None:
         from ..pipeline.utils import resolve_path
 
@@ -188,7 +194,7 @@ def run_rolling_model_comparison(
     )
     folds = make_rolling_folds(matches, min_train_seasons, seasons)
     features = None
-    if include_xgb:
+    if include_xgb or include_ensemble:
         from ..features.feature_engineering import build_features
 
         features = build_features(matches)
@@ -216,6 +222,20 @@ def run_rolling_model_comparison(
             xgb_probs = xgb_model.predict_proba(
                 np.nan_to_num(test_features.select(xgb_columns).to_numpy(), nan=0.0)
             )
+        ensemble_probs = None
+        if include_ensemble:
+            from ..models.ensemble import EnsemblePredictor
+
+            predictor = EnsemblePredictor()
+            train_features = features.filter(pl.col("season").is_in(train_seasons))
+            test_features = features.filter(pl.col("season") == test_season).sort("date")
+            predictor.train(
+                train,
+                features=train_features,
+                use_deep=False,
+                n_folds=3,
+            )
+            ensemble_probs = predictor.predict_batch(test_features)
         for index, row in enumerate(test.iter_rows(named=True)):
             y = labels[row["result"]]
             dc = predict_dixon_coles(dc_params, row["home_team"], row["away_team"])
@@ -241,6 +261,14 @@ def run_rolling_model_comparison(
                         "xgb_a": float(xgb_probs[index, 2]),
                     }
                 )
+            if ensemble_probs is not None:
+                record.update(
+                    {
+                        "ensemble_h": float(ensemble_probs[index, 0]),
+                        "ensemble_d": float(ensemble_probs[index, 1]),
+                        "ensemble_a": float(ensemble_probs[index, 2]),
+                    }
+                )
             rows.append(record)
             _update_elo(ratings, row["home_team"], row["away_team"], row["result"])
 
@@ -251,7 +279,7 @@ def run_rolling_model_comparison(
     predictions.write_parquet(str(output_path))
     summary = {"n_matches": len(predictions), "models": {}, "path": str(output_path)}
     y = np.asarray([labels[result] for result in predictions["result"].to_list()])
-    for model in ("dc", "elo", "xgb"):
+    for model in ("dc", "elo", "xgb", "ensemble"):
         columns = [f"{model}_{outcome}" for outcome in ("h", "d", "a")]
         if not all(column in predictions.columns for column in columns):
             continue

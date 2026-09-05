@@ -633,7 +633,7 @@ class EnsemblePredictor:
             except Exception:
                 pass
 
-        xgb_probs = predict_xgb(self.xgb_model, features)
+        xgb_probs = predict_xgb(self.xgb_model, features, self.xgb_features)
 
         # Deep batch predictions (if available)
         deep_probs = None
@@ -1108,14 +1108,25 @@ class EnsemblePredictor:
                         dc_preds[i] = [dc["home_win"], dc["draw"], dc["away_win"]]
                 except Exception:
                     pass
-        xgb_probs = predict_xgb(self.xgb_model, features)
+        xgb_probs = predict_xgb(self.xgb_model, features, self.xgb_features)
         deep_probs = self._predict_deep_batch(features)
+        if deep_probs is None:
+            # The stackers are always trained with a deep-model slot.  Keep
+            # batch inference shape-stable when deep training is disabled.
+            deep_probs = np.full((n, 3), 1 / 3)
 
-        if deep_probs is not None:
-            X = np.hstack([dc_preds, xgb_probs, deep_probs])
-        else:
-            X = np.hstack([dc_preds, xgb_probs])
-        return self.stacker.predict_proba(X)
+        X = np.hstack([dc_preds, xgb_probs, deep_probs])
+        stacker = self.stacker
+        calibrator = self.stacker_cal
+        if stacker is None:
+            stacker = self.stacker_nomarket
+            calibrator = self.stacker_nomarket_cal
+        if stacker is None:
+            return dc_preds
+        probabilities = stacker.predict_proba(X)
+        return np.asarray(
+            [self._apply_calibration(row, calibrator) for row in probabilities]
+        )
 
     # ------------------------------------------------------------------
     # Persistence

@@ -100,7 +100,8 @@ writes per-match provenance to `data/processed/rolling_predictions.parquet` plus
 fold metrics to `data/processed/rolling_evaluation.parquet`.
 `compare-models` writes per-match predictions to
 `data/processed/rolling_model_comparison.parquet`; use `--no-xgb` for a fast
-Dixon-Coles versus Elo comparison.
+Dixon-Coles versus Elo comparison. Add `--include-ensemble` to retrain and
+evaluate the production stacker on every fold with deep training disabled.
 
 ## Dashboard
 

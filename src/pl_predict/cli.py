@@ -136,14 +136,20 @@ def compare_models(
     no_xgb: bool = typer.Option(
         False, "--no-xgb", help="Compare only Dixon-Coles and Elo"
     ),
+    include_ensemble: bool = typer.Option(
+        False,
+        "--include-ensemble",
+        help="Also retrain the production stacker on every fold (slower)",
+    ),
 ):
-    """Compare Dixon-Coles, Elo, and XGBoost on identical rolling folds."""
+    """Compare prediction models on identical chronological rolling folds."""
     from pl_predict.evaluation.backtest import run_rolling_model_comparison
 
     result = run_rolling_model_comparison(
         seasons=seasons,
         min_train_seasons=min_train_seasons,
         include_xgb=not no_xgb,
+        include_ensemble=include_ensemble,
     )
     console.print(
         f"[green]Compared {result['n_matches']} matches across rolling folds.[/green]"
